@@ -64,7 +64,7 @@ docker-build-ci: ## Reproducible CI Docker build (builds binaries in container)
 	DOCKER_BUILDKIT=1 $(DOCKER) build --target runtime -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
 docker-multiarch: ## Build multi-arch Docker image
-	$(DOCKER) buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME):$(IMAGE_TAG) .
+	$(DOCKER) buildx build --platform linux/amd64 -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
 ci-local: fmt-check lint audit test build ## Run full CI locally
 	@echo ""

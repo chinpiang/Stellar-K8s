@@ -5,9 +5,11 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/stellar/stellar-k8s
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion
   tag: ""
+  # Optional image digest (use repository@sha256:... to pin exact image)
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""

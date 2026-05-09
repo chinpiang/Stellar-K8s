@@ -25,6 +25,11 @@
           "type": "string",
           "description": "Image tag (defaults to chart appVersion)"
         }
+        ,
+        "digest": {
+          "type": "string",
+          "description": "Optional image digest (sha256:...) to pin exact image"
+        }
       }
     },
     "imagePullSecrets": {
