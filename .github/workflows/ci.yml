@@ -80,12 +80,22 @@ jobs:
 
           _match() { echo "$CHANGED" | grep -Eq "$1" && echo "true" || echo "false"; }
 
-          echo "docker=$(_match   '^(Dockerfile|\.dockerignore|Cargo\.toml|Cargo\.lock|src/|config/|Makefile)')" >> "$GITHUB_OUTPUT"
-          echo "helm=$(_match     '^(charts/|config/crd/|config/samples/|examples/|Makefile)')"                  >> "$GITHUB_OUTPUT"
-          echo "api_docs=$(_match '^(docs/|scripts/generate-api-docs\.py|config/crd/|src/crd/|src/rest_api/|Makefile)')" >> "$GITHUB_OUTPUT"
-          echo "rust_core=$(_match '^(src/|Cargo\.toml|Cargo\.lock|Makefile|build\.rs)')"                        >> "$GITHUB_OUTPUT"
-          echo "deps=$(_match     '^(Cargo\.toml|Cargo\.lock)')"                                                  >> "$GITHUB_OUTPUT"
-          echo "examples=$(_match '^(examples/|config/crd/|config/samples/)')"                                   >> "$GITHUB_OUTPUT"
+          echo "docker=$(_match \
+            '^(Dockerfile|\.dockerignore|Cargo\.toml|Cargo\.lock|src/|config/|Makefile)')" \
+            >> "$GITHUB_OUTPUT"
+          echo "helm=$(_match \
+            '^(charts/|config/crd/|config/samples/|examples/|Makefile)')" \
+            >> "$GITHUB_OUTPUT"
+          echo "api_docs=$(_match \
+            '^(docs/|scripts/generate-api-docs\.py|config/crd/|src/crd/|src/rest_api/|Makefile)')" \
+            >> "$GITHUB_OUTPUT"
+          echo "rust_core=$(_match \
+            '^(src/|Cargo\.toml|Cargo\.lock|Makefile|build\.rs)')" \
+            >> "$GITHUB_OUTPUT"
+          echo "deps=$(_match '^(Cargo\.toml|Cargo\.lock)')" >> "$GITHUB_OUTPUT"
+          echo "examples=$(_match \
+            '^(examples/|config/crd/|config/samples/)')" \
+            >> "$GITHUB_OUTPUT"
 
   # ── 2. Version consistency (main push only) ──────────────────────────────────
   version-consistency:
