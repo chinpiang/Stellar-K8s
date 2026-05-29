@@ -54,6 +54,7 @@ pub mod canary;
 pub mod cross_cloud_failover;
 pub mod feature_flags;
 pub mod gas_autoscaling;
+pub mod gitops_upgrade;
 pub mod horizon_metrics_collector;
 pub mod horizon_scaler;
 pub mod jurisdiction;
@@ -171,6 +172,10 @@ pub use feature_flags::{
     watch_feature_flags, FeatureFlags, SharedFeatureFlags, FEATURE_FLAGS_CONFIGMAP,
 };
 pub use finalizers::STELLAR_NODE_FINALIZER;
+pub use gitops_upgrade::{
+    GitOpsEngine, GitOpsUpgradeController, GitOpsUpgradePlan, ProtocolUpgradeStep,
+    ProtocolUpgradeTimeline,
+};
 pub use health::{check_node_health, HealthCheckResult};
 pub use jurisdiction::{
     build_jurisdiction_node_affinity, compliance_report, merge_jurisdiction_tolerations,
@@ -203,3 +208,5 @@ pub use webhook_delivery::{
     DeliveryRecord, WebhookDeliveryService, WebhookEndpoint, WebhookEvent, WebhookEventType,
 };
 pub mod ml_pipeline;
+pub mod observability_pipeline;
+pub mod observability_dashboard;

@@ -100,7 +100,7 @@ pub async fn run_server(
         .route("/livez", get(handlers::livez))
         .with_state(state.clone());
 
-    let mut protected = Router::new()
+    let protected = Router::new()
         .route("/leader", get(handlers::leader_status))
         .route("/api/v1/nodes", get(handlers::list_nodes))
         .route("/api/v1/nodes/:namespace/:name", get(handlers::get_node))
@@ -137,6 +137,10 @@ pub async fn run_server(
         .route(
             "/api/v1/dashboard/nodes/:namespace/:name/conditions",
             get(dashboard_handlers::get_node_conditions),
+        )
+        .route(
+            "/api/v1/dashboard/nodes/:namespace/:name/dr",
+            get(dashboard_handlers::get_dr_status),
         )
         .route(
             "/api/v1/dashboard/nodes/:namespace/:name/metrics",

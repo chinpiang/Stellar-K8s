@@ -39,6 +39,7 @@ use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container, PodSpec, PodTemplateSpec, SecretVolumeSource, Service, Volume,
 };
+use k8s_openapi::api::core::v1::{PodSpec, PodTemplateSpec, SecretVolumeSource, Service, Volume};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, Patch, PatchParams, PostParams};
 use kube::Client;
@@ -500,11 +501,27 @@ pub async fn orchestrate_horizon_migration(
             "Horizon migration Job {}/{} failed before green deployment",
             namespace, job_name
         );
+        rollback_to_blue(client, node).await.ok();
         cleanup_horizon_migration_job(client, node).await.ok();
+        let duration = start.elapsed().as_secs_f64();
+        crate::controller::metrics::observe_horizon_migration_duration(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+            duration,
+        );
+        crate::controller::metrics::inc_horizon_migration_total(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+        );
         return Ok(false);
     }
 
     if let Some(green_dep) = blue_api.get(&format!("{}-green", node_name)).await.ok() {
+    if let Ok(green_dep) = blue_api.get(&format!("{}-green", node_name)).await {
         let _ = blue_api
             .delete(&green_dep.name_any(), &Default::default())
             .await;
@@ -516,7 +533,22 @@ pub async fn orchestrate_horizon_migration(
             "Green deployment failed to become ready for {}/{}",
             namespace, node_name
         );
+        rollback_to_blue(client, node).await.ok();
         cleanup_horizon_migration_job(client, node).await.ok();
+        let duration = start.elapsed().as_secs_f64();
+        crate::controller::metrics::observe_horizon_migration_duration(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+            duration,
+        );
+        crate::controller::metrics::inc_horizon_migration_total(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+        );
         return Ok(false);
     }
 
@@ -527,7 +559,22 @@ pub async fn orchestrate_horizon_migration(
                     "Smoke tests failed for green deployment of {}/{}",
                     namespace, node_name
                 );
+                rollback_to_blue(client, node).await.ok();
                 cleanup_horizon_migration_job(client, node).await.ok();
+                let duration = start.elapsed().as_secs_f64();
+                crate::controller::metrics::observe_horizon_migration_duration(
+                    &namespace,
+                    &node_name,
+                    &node.spec.network_passphrase(),
+                    "failed",
+                    duration,
+                );
+                crate::controller::metrics::inc_horizon_migration_total(
+                    &namespace,
+                    &node_name,
+                    &node.spec.network_passphrase(),
+                    "failed",
+                );
                 return Ok(false);
             }
         }
@@ -540,6 +587,20 @@ pub async fn orchestrate_horizon_migration(
         );
         rollback_to_blue(client, node).await.ok();
         cleanup_horizon_migration_job(client, node).await.ok();
+        let duration = start.elapsed().as_secs_f64();
+        crate::controller::metrics::observe_horizon_migration_duration(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+            duration,
+        );
+        crate::controller::metrics::inc_horizon_migration_total(
+            &namespace,
+            &node_name,
+            &node.spec.network_passphrase(),
+            "failed",
+        );
         return Ok(false);
     }
 
@@ -551,14 +612,14 @@ pub async fn orchestrate_horizon_migration(
     crate::controller::metrics::observe_horizon_migration_duration(
         &namespace,
         &node_name,
-        &node.spec.network_passphrase(),
+        node.spec.network_passphrase(),
         "success",
         duration,
     );
     crate::controller::metrics::inc_horizon_migration_total(
         &namespace,
         &node_name,
-        &node.spec.network_passphrase(),
+        node.spec.network_passphrase(),
         "success",
     );
 
@@ -648,17 +709,29 @@ pub async fn rollback_to_blue(client: &Client, node: &StellarNode) -> Result<()>
 
     let api: Api<Service> = Api::namespaced(client.clone(), &namespace);
 
-    // Switch traffic back to Blue
+    // Restore standard selector so traffic goes back to the stable deployment.
     let patch = Patch::Merge(json!({
         "spec": {
             "selector": {
-                "deployment-color": "blue"
+                "deployment-color": serde_json::Value::Null
             }
         }
     }));
 
     api.patch(&node_name, &PatchParams::default(), &patch)
         .await?;
+
+    // Clean up failed/partial green deployment if present.
+    let deployments: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let green_name = format!("{}-green", node_name);
+    if let Err(e) = deployments.delete(&green_name, &Default::default()).await {
+        if !matches!(e, kube::Error::Api(ref ae) if ae.code == 404) {
+            warn!(
+                "Failed to delete green deployment {}/{} during rollback: {}",
+                namespace, green_name, e
+            );
+        }
+    }
 
     warn!(
         "Rolled back traffic to Blue deployment for {}/{}",

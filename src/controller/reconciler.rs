@@ -56,7 +56,6 @@ use super::archive_health::{
     check_history_archive_health, ArchiveHealthResult, ArchiveIntegrityCheckResult,
     ARCHIVE_LAG_THRESHOLD,
 };
-use super::audit_sink::{AuditSink, NoopAuditSink, S3AuditSink};
 use super::audit_worker::AuditWorker;
 use super::conditions;
 use super::cross_cloud_failover;
@@ -1492,7 +1491,7 @@ pub(crate) fn apply_stellar_node(
                                 namespace, name
                             );
 
-                            let mut status_patch = serde_json::json!({
+                            let status_patch = serde_json::json!({
                                 "status": {
                                     "phase": "Migrating",
                                     "message": format!(
@@ -2038,7 +2037,7 @@ pub(crate) fn apply_stellar_node(
                     }
                 }
 
-                let scaling_config_clone = scaling_config.clone();
+                let _scaling_config_clone = scaling_config.clone();
                 apply_or_emit!(
                     &ctx,
                     &node,
