@@ -20,6 +20,7 @@ use tracing::info;
 use crate::controller::ControllerState;
 use crate::{Error, Result};
 
+use super::horizon_cache_handlers;
 use super::audit_handlers;
 use super::auth;
 use super::custom_metrics;
@@ -120,6 +121,11 @@ pub async fn run_server(
         )
         // Compliance report
         .route("/api/v1/compliance/report", get(handlers::compliance_report))
+        // Horizon cache observability (Issue #732)
+        .route(
+            "/api/v1/horizon/cache/status",
+            get(horizon_cache_handlers::horizon_cache_status),
+        )
         // Dashboard routes
         .route("/", get(dashboard_ui))
         .route("/api/v1/dashboard/overview", get(dashboard_handlers::dashboard_overview))
