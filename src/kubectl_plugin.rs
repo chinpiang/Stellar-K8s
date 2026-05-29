@@ -248,6 +248,11 @@ enum Commands {
         #[command(subcommand)]
         command: FederationCommands,
     },
+    /// Manage VolumeSnapshots for StellarNodes
+    Snapshot {
+        #[command(subcommand)]
+        command: SnapshotCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -300,6 +305,33 @@ pub enum CveCommands {
         /// Show all namespaces
         #[arg(short = 'A', long)]
         all_namespaces: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SnapshotCommands {
+    /// Create a VolumeSnapshot for a StellarNode
+    Create {
+        /// Name of the StellarNode
+        node_name: String,
+        /// VolumeSnapshotClass name (optional, uses default if not specified)
+        #[arg(long)]
+        volume_snapshot_class: Option<String>,
+    },
+    /// List VolumeSnapshots for StellarNodes
+    List {
+        /// Name of a specific StellarNode (optional, shows all if omitted)
+        node_name: Option<String>,
+        /// Show all namespaces
+        #[arg(short = 'A', long)]
+        all_namespaces: bool,
+    },
+    /// Restore from a VolumeSnapshot
+    Restore {
+        /// Name of the VolumeSnapshot
+        snapshot_name: String,
+        /// Name of the StellarNode to restore
+        node_name: String,
     },
 }
 
@@ -364,6 +396,11 @@ async fn run(cli: Cli) -> Result<()> {
             Commands::Audit { .. } => {
                 Some("Inspect compliance audit trails (read-only)".to_string())
             }
+            Commands::Snapshot { command } => match command {
+                SnapshotCommands::List { .. } => Some("List VolumeSnapshots (read-only)".to_string()),
+                SnapshotCommands::Create { node_name, .. } => Some(format!("Create VolumeSnapshot for StellarNode '{}'", node_name)),
+                SnapshotCommands::Restore { snapshot_name, node_name } => Some(format!("Restore VolumeSnapshot '{}' to StellarNode '{}'", snapshot_name, node_name)),
+            },
         };
         if let Some(desc) = action {
             println!("[dry-run] Would: {desc}");
@@ -699,8 +736,162 @@ async fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
+        Commands::Snapshot { command } => {
+            let client = Client::try_default().await.map_err(Error::KubeError)?;
+            let namespace = cli.namespace.as_deref().unwrap_or("default");
+            match command {
+                SnapshotCommands::Create { node_name, volume_snapshot_class } => {
+                    snapshot_create(&client, namespace, &node_name, volume_snapshot_class.as_deref()).await
+                }
+                SnapshotCommands::List { node_name, all_namespaces } => {
+                    let ns = if all_namespaces {
+                        None
+                    } else {
+                        Some(namespace)
+                    };
+                    snapshot_list(&client, node_name.as_deref(), ns, &cli.output).await
+                }
+                SnapshotCommands::Restore { snapshot_name, node_name } => {
+                    snapshot_restore(&client, namespace, &snapshot_name, &node_name).await
+                }
+            }
+        }
         _ => todo!(),
     }
+}
+
+/// VolumeSnapshot API resource for snapshot.storage.k8s.io/v1
+fn volume_snapshot_api_resource() -> kube::discovery::ApiResource {
+    kube::discovery::ApiResource {
+        group: "snapshot.storage.k8s.io".to_string(),
+        version: "v1".to_string(),
+        api_version: "snapshot.storage.k8s.io/v1".to_string(),
+        kind: "VolumeSnapshot".to_string(),
+        plural: "volumesnapshots".to_string(),
+    }
+}
+
+/// Helper to build resource name
+fn resource_name_for_node(node_name: &str, suffix: &str) -> String {
+    format!("{}-{}", node_name, suffix)
+}
+
+/// Create a VolumeSnapshot for a StellarNode
+async fn snapshot_create(
+    client: &Client,
+    namespace: &str,
+    node_name: &str,
+    volume_snapshot_class: Option<&str>,
+) -> Result<()> {
+    // First, verify the StellarNode exists
+    let node_api: Api<StellarNode> = Api::namespaced(client.clone(), namespace);
+    let node = node_api.get(node_name).await.map_err(Error::KubeError)?;
+
+    let pvc_name = resource_name_for_node(node_name, "data");
+    let snapshot_name = format!(
+        "{}-data-{}",
+        node_name,
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    );
+
+    let api_resource = volume_snapshot_api_resource();
+    let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &api_resource);
+
+    let mut labels = std::collections::BTreeMap::new();
+    labels.insert("app.kubernetes.io/name".to_string(), "stellar-node".to_string());
+    labels.insert("app.kubernetes.io/instance".to_string(), node_name.to_string());
+    labels.insert("app.kubernetes.io/managed-by".to_string(), "stellar-operator".to_string());
+    labels.insert("stellar.org/snapshot-of".to_string(), node_name.to_string());
+
+    let meta = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+        name: Some(snapshot_name.clone()),
+        namespace: Some(namespace.to_string()),
+        labels: Some(labels),
+        ..Default::default()
+    };
+
+    let mut spec = serde_json::json!({
+        "source": {
+            "persistentVolumeClaimName": pvc_name
+        }
+    });
+
+    if let Some(vs_class) = volume_snapshot_class {
+        spec["volumeSnapshotClassName"] = serde_json::json!(vs_class);
+    }
+
+    let snapshot = DynamicObject {
+        types: Some(kube::core::TypeMeta {
+            api_version: api_resource.api_version.clone(),
+            kind: api_resource.kind.clone(),
+        }),
+        metadata: meta,
+        data: serde_json::json!({
+            "spec": spec
+        }),
+    };
+
+    api.create(&PostParams::default(), &snapshot).await.map_err(Error::KubeError)?;
+    println!("Created VolumeSnapshot '{}' for PVC '{}'", snapshot_name, pvc_name);
+
+    Ok(())
+}
+
+/// List VolumeSnapshots for StellarNodes
+async fn snapshot_list(
+    client: &Client,
+    node_name: Option<&str>,
+    namespace: Option<&str>,
+    output: &str,
+) -> Result<()> {
+    let api_resource = volume_snapshot_api_resource();
+    let api: Api<DynamicObject> = if let Some(ns) = namespace {
+        Api::namespaced_with(client.clone(), ns, &api_resource)
+    } else {
+        Api::all_with(client.clone(), &api_resource)
+    };
+
+    let list_params = if let Some(name) = node_name {
+        ListParams::default().labels(&format!("stellar.org/snapshot-of={}", name))
+    } else {
+        ListParams::default().labels("app.kubernetes.io/managed-by=stellar-operator")
+    };
+
+    let list = api.list(&list_params).await.map_err(Error::KubeError)?;
+
+    match output {
+        "json" => {
+            println!("{}", serde_json::to_string_pretty(&list.items).map_err(|e| Error::ConfigError(format!("JSON serialization error: {}", e)))?);
+        }
+        "yaml" => {
+            println!("{}", serde_yaml::to_string(&list.items).map_err(|e| Error::ConfigError(format!("YAML serialization error: {}", e)))?);
+        }
+        _ => {
+            println!("{:<50} {:<20} {:<30} {:<20}", "NAME", "NAMESPACE", "SNAPSHOT OF", "STATUS");
+            println!("{}", "-".repeat(120));
+            for item in list.items {
+                let name = item.name_any();
+                let ns = item.namespace().unwrap_or_else(|| "default".to_string());
+                let snapshot_of = item.metadata.labels.as_ref().and_then(|l| l.get("stellar.org/snapshot-of")).cloned().unwrap_or_else(|| "unknown".to_string());
+                let status = item.data.get("status").and_then(|s| s.get("readyToUse")).and_then(|r| r.as_bool()).map(|b| if b { "Ready" } else { "Pending" }).unwrap_or("Unknown");
+                println!("{:<50} {:<20} {:<30} {:<20}", name, ns, snapshot_of, status);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Restore from a VolumeSnapshot (placeholder - this would typically involve updating PVC in StellarNode spec)
+async fn snapshot_restore(
+    _client: &Client,
+    _namespace: &str,
+    _snapshot_name: &str,
+    _node_name: &str,
+) -> Result<()> {
+    println!("Restore functionality would update StellarNode spec to use VolumeSnapshot as data source for PVC");
+    println!("For now, this is a placeholder - see documentation for manual restoration steps");
+    Ok(())
 }
 
 fn search_docs(query: &str, full: bool) -> Result<()> {
