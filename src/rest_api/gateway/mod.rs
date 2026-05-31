@@ -44,8 +44,6 @@ use tokio::sync::RwLock;
 use crate::controller::ControllerState;
 use crate::rest_api::dto::ErrorResponse;
 
-use super::dto;
-
 /// Gateway state shared across requests
 pub struct GatewayState {
     pub auth: AuthMiddleware,
