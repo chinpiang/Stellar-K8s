@@ -65,6 +65,7 @@
 
 pub mod backup;
 pub mod deployment_strategy;
+pub mod network_observability;
 pub mod load_balancer;
 pub mod message_queue;
 pub mod schema_registry;
