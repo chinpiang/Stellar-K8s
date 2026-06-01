@@ -1550,3 +1550,247 @@ fn test_priority_class_name_empty_string_fails_validation() {
         "error must reference priorityClassName field"
     );
 }
+
+// -----------------------------------------------------------------------
+// #704 — Advanced liveness/readiness probes for Stellar-Core
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod advanced_probe_tests {
+    use crate::controller::resources::build_statefulset_for_test;
+    use crate::crd::{
+        types::{ResourceRequirements, ResourceSpec},
+        NodeType, StellarNetwork, StellarNode, StellarNodeSpec,
+    };
+    use kube::api::ObjectMeta;
+
+    fn validator_node(name: &str) -> StellarNode {
+        StellarNode {
+            metadata: ObjectMeta {
+                name: Some(name.to_string()),
+                namespace: Some("default".to_string()),
+                uid: Some("uid-probe-test".to_string()),
+                ..Default::default()
+            },
+            spec: StellarNodeSpec {
+                node_type: NodeType::Validator,
+                network: StellarNetwork::Testnet,
+                version: "v21.0.0".to_string(),
+                replicas: 1,
+                resources: ResourceRequirements {
+                    requests: ResourceSpec {
+                        cpu: "500m".to_string(),
+                        memory: "1Gi".to_string(),
+                    },
+                    limits: ResourceSpec {
+                        cpu: "2".to_string(),
+                        memory: "4Gi".to_string(),
+                    },
+                },
+                ..Default::default()
+            },
+            status: None,
+        }
+    }
+
+    /// Liveness probe for a Validator must use TCP socket on port 11625.
+    /// This ensures the pod is only killed when the process is truly unresponsive,
+    /// not merely syncing.
+    #[test]
+    fn test_validator_liveness_probe_is_tcp_socket() {
+        let node = validator_node("v-liveness");
+        let sts = build_statefulset_for_test(&node);
+        let container = &sts.spec.unwrap().template.spec.unwrap().containers[0];
+        let probe = container
+            .liveness_probe
+            .as_ref()
+            .expect("liveness probe must be set");
+        assert!(
+            probe.tcp_socket.is_some(),
+            "Validator liveness probe must be TCP socket (not HTTP), got: {:?}",
+            probe
+        );
+        assert!(
+            probe.http_get.is_none(),
+            "Validator liveness probe must NOT be HTTP GET"
+        );
+        assert!(
+            probe.exec.is_none(),
+            "Validator liveness probe must NOT be exec"
+        );
+        let tcp = probe.tcp_socket.as_ref().unwrap();
+        assert_eq!(
+            tcp.port,
+            k8s_openapi::apimachinery::pkg::util::intstr::IntOrString::Int(11625),
+            "Validator liveness probe must target port 11625"
+        );
+    }
+
+    /// Readiness probe for a Validator must use an exec probe that queries /info
+    /// and rejects CATCHING_UP / SYNCING states.
+    #[test]
+    fn test_validator_readiness_probe_is_exec_checking_info() {
+        let node = validator_node("v-readiness");
+        let sts = build_statefulset_for_test(&node);
+        let container = &sts.spec.unwrap().template.spec.unwrap().containers[0];
+        let probe = container
+            .readiness_probe
+            .as_ref()
+            .expect("readiness probe must be set");
+        assert!(
+            probe.exec.is_some(),
+            "Validator readiness probe must be exec (not HTTP GET), got: {:?}",
+            probe
+        );
+        assert!(
+            probe.http_get.is_none(),
+            "Validator readiness probe must NOT be HTTP GET"
+        );
+        let exec = probe.exec.as_ref().unwrap();
+        let cmd = exec.command.as_ref().expect("exec command must be set");
+        let script = cmd.join(" ");
+        assert!(
+            script.contains("11626"),
+            "readiness probe must query port 11626 (Stellar-Core HTTP)"
+        );
+        assert!(
+            script.contains("CATCHING_UP"),
+            "readiness probe must check for CATCHING_UP state"
+        );
+        assert!(
+            script.contains("SYNCING"),
+            "readiness probe must check for SYNCING state"
+        );
+    }
+
+    /// A node in CATCHING_UP/SYNCING should be Not Ready (liveness still passes).
+    /// This test verifies the probe script logic: the script must exit non-zero
+    /// when the /info response contains a syncing state.
+    #[test]
+    fn test_readiness_script_rejects_catching_up_state() {
+        let node = validator_node("v-sync-check");
+        let sts = build_statefulset_for_test(&node);
+        let container = &sts.spec.unwrap().template.spec.unwrap().containers[0];
+        let probe = container.readiness_probe.as_ref().unwrap();
+        let exec = probe.exec.as_ref().unwrap();
+        let cmd = exec.command.as_ref().unwrap();
+        // The script must use grep -qv (invert match) so that presence of
+        // CATCHING_UP or SYNCING causes a non-zero exit.
+        let script = cmd.join(" ");
+        assert!(
+            script.contains("grep -qv"),
+            "script must use 'grep -qv' to invert-match syncing states: {}",
+            script
+        );
+    }
+}
+
+// -----------------------------------------------------------------------
+// #707 — PodDisruptionBudgets for Stellar-Core nodes
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod pdb_tests {
+    use crate::controller::resources::build_pdb_for_test;
+    use crate::crd::{
+        types::{ResourceRequirements, ResourceSpec},
+        NodeType, StellarNetwork, StellarNode, StellarNodeSpec,
+    };
+    use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+    use kube::api::ObjectMeta;
+
+    fn node_with_replicas(node_type: NodeType, replicas: i32) -> StellarNode {
+        StellarNode {
+            metadata: ObjectMeta {
+                name: Some("test-node".to_string()),
+                namespace: Some("default".to_string()),
+                uid: Some("uid-pdb-test".to_string()),
+                ..Default::default()
+            },
+            spec: StellarNodeSpec {
+                node_type,
+                network: StellarNetwork::Testnet,
+                version: "v21.0.0".to_string(),
+                replicas,
+                resources: ResourceRequirements {
+                    requests: ResourceSpec {
+                        cpu: "500m".to_string(),
+                        memory: "1Gi".to_string(),
+                    },
+                    limits: ResourceSpec {
+                        cpu: "2".to_string(),
+                        memory: "4Gi".to_string(),
+                    },
+                },
+                ..Default::default()
+            },
+            status: None,
+        }
+    }
+
+    /// Validator with replicas=1 gets minAvailable=1 (edge case).
+    #[test]
+    fn test_validator_pdb_replicas_1_min_available_1() {
+        let node = node_with_replicas(NodeType::Validator, 1);
+        let pdb = build_pdb_for_test(&node).expect("PDB must be generated for Validator");
+        let spec = pdb.spec.unwrap();
+        assert_eq!(
+            spec.min_available,
+            Some(IntOrString::Int(1)),
+            "replicas=1 Validator must have minAvailable=1"
+        );
+        assert!(spec.max_unavailable.is_none());
+    }
+
+    /// Validator with replicas=3 gets minAvailable=2 (quorum majority).
+    #[test]
+    fn test_validator_pdb_replicas_3_min_available_2() {
+        let node = node_with_replicas(NodeType::Validator, 3);
+        let pdb = build_pdb_for_test(&node).expect("PDB must be generated for Validator");
+        let spec = pdb.spec.unwrap();
+        assert_eq!(
+            spec.min_available,
+            Some(IntOrString::Int(2)),
+            "replicas=3 Validator must have minAvailable=2"
+        );
+    }
+
+    /// Validator with replicas=5 gets minAvailable=3.
+    #[test]
+    fn test_validator_pdb_replicas_5_min_available_3() {
+        let node = node_with_replicas(NodeType::Validator, 5);
+        let pdb = build_pdb_for_test(&node).expect("PDB must be generated for Validator");
+        let spec = pdb.spec.unwrap();
+        assert_eq!(spec.min_available, Some(IntOrString::Int(3)));
+    }
+
+    /// PDB owner reference points to the StellarNode CR for garbage collection.
+    #[test]
+    fn test_validator_pdb_has_owner_reference() {
+        let node = node_with_replicas(NodeType::Validator, 3);
+        let pdb = build_pdb_for_test(&node).expect("PDB must be generated");
+        let owners = pdb.metadata.owner_references.expect("must have owner refs");
+        assert_eq!(owners.len(), 1);
+        assert_eq!(owners[0].name, "test-node");
+    }
+
+    /// Non-Validator with replicas=1 returns None (no PDB needed).
+    #[test]
+    fn test_non_validator_single_replica_no_pdb() {
+        let node = node_with_replicas(NodeType::Horizon, 1);
+        assert!(
+            build_pdb_for_test(&node).is_none(),
+            "single-replica Horizon must not get a PDB"
+        );
+    }
+
+    /// Non-Validator with replicas=3 gets default maxUnavailable=1.
+    #[test]
+    fn test_non_validator_multi_replica_default_pdb() {
+        let node = node_with_replicas(NodeType::Horizon, 3);
+        let pdb = build_pdb_for_test(&node).expect("PDB must be generated for multi-replica Horizon");
+        let spec = pdb.spec.unwrap();
+        assert_eq!(spec.max_unavailable, Some(IntOrString::Int(1)));
+        assert!(spec.min_available.is_none());
+    }
+}

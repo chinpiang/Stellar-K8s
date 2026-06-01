@@ -175,25 +175,42 @@ fn default_liveness_probe(node_type: &crate::crd::NodeType) -> k8s_openapi::api:
 
 /// Default readiness probe per node type.
 ///
-/// - Validator: HTTP GET /info on port 11626 (Stellar Core HTTP port)
+/// - Validator: exec probe that queries the Stellar-Core HTTP API (`/info`) and
+///   marks the pod **Not Ready** when the node is in `CATCHING_UP` or `SYNCING`
+///   state.  The pod remains Not Ready until the node is fully synced, preventing
+///   traffic from being routed to a node that cannot yet participate in consensus.
+///   The liveness probe (TCP socket) is intentionally kept separate so that a
+///   syncing node is never restarted — only removed from the ready set.
 /// - Horizon / SorobanRpc: HTTP GET /health on port 8000
 fn default_readiness_probe(node_type: &crate::crd::NodeType) -> k8s_openapi::api::core::v1::Probe {
-    use k8s_openapi::api::core::v1::{HTTPGetAction, Probe};
+    use k8s_openapi::api::core::v1::{ExecAction, HTTPGetAction, Probe};
     use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
     match node_type {
-        crate::crd::NodeType::Validator => Probe {
-            http_get: Some(HTTPGetAction {
-                path: Some("/info".to_string()),
-                port: IntOrString::Int(11626),
+        crate::crd::NodeType::Validator => {
+            // Query /info and fail if the node is CATCHING_UP or SYNCING.
+            // wget is available in the stellar/stellar-core image.
+            // Exit 1 (not ready) when state contains CATCHING_UP or SYNCING.
+            let script = concat!(
+                "RESP=$(wget -qO- http://localhost:11626/info 2>/dev/null) && ",
+                "echo \"$RESP\" | grep -qv '\"state\".*\"CATCHING_UP\"' && ",
+                "echo \"$RESP\" | grep -qv '\"state\".*\"SYNCING\"'"
+            );
+            Probe {
+                exec: Some(ExecAction {
+                    command: Some(vec![
+                        "/bin/sh".to_string(),
+                        "-c".to_string(),
+                        script.to_string(),
+                    ]),
+                }),
+                initial_delay_seconds: Some(15),
+                period_seconds: Some(10),
+                timeout_seconds: Some(5),
+                failure_threshold: Some(3),
+                success_threshold: Some(1),
                 ..Default::default()
-            }),
-            initial_delay_seconds: Some(15),
-            period_seconds: Some(10),
-            timeout_seconds: Some(5),
-            failure_threshold: Some(3),
-            success_threshold: Some(1),
-            ..Default::default()
-        },
+            }
+        }
         _ => Probe {
             http_get: Some(HTTPGetAction {
                 path: Some("/health".to_string()),
@@ -4141,18 +4158,35 @@ pub async fn delete_network_policy(
 }
 
 // ============================================================================
-// PodDisruptionBudget — unchanged
+// PodDisruptionBudget
 // ============================================================================
 
+/// Build a PodDisruptionBudget for a StellarNode.
+///
+/// For **Validator** nodes the PDB is always generated to protect quorum:
+/// - `replicas == 1`: `minAvailable: 1` (prevents all disruptions while still
+///   allowing the single pod to be evicted when the node is deleted).
+/// - `replicas > 1`: `minAvailable = (replicas / 2) + 1` so that a strict
+///   majority of validators is always available during maintenance.
+///
+/// For non-Validator nodes the existing user-controlled behaviour is preserved:
+/// - If neither `minAvailable` nor `maxUnavailable` is set, defaults to
+///   `maxUnavailable: 1`.
+/// - Returns `None` when `replicas <= 1` (no PDB needed for single-replica
+///   non-validator workloads).
 fn build_pdb(node: &StellarNode) -> Option<PodDisruptionBudget> {
-    if node.spec.replicas <= 1 {
-        return None;
-    }
-
     let labels = standard_labels(node);
     let name = node.name_any();
 
-    let (min_available, max_unavailable) =
+    let (min_available, max_unavailable) = if node.spec.node_type == NodeType::Validator {
+        // Auto-calculate quorum-safe minAvailable for Stellar-Core validators.
+        let replicas = node.spec.replicas.max(1);
+        let min_avail = (replicas / 2) + 1;
+        (Some(IntOrString::Int(min_avail)), None)
+    } else {
+        if node.spec.replicas <= 1 {
+            return None;
+        }
         if node.spec.min_available.is_none() && node.spec.max_unavailable.is_none() {
             (None, Some(IntOrString::Int(1)))
         } else {
@@ -4160,7 +4194,8 @@ fn build_pdb(node: &StellarNode) -> Option<PodDisruptionBudget> {
                 node.spec.min_available.clone(),
                 node.spec.max_unavailable.clone(),
             )
-        };
+        }
+    };
 
     Some(PodDisruptionBudget {
         metadata: ObjectMeta {
@@ -4184,7 +4219,8 @@ fn build_pdb(node: &StellarNode) -> Option<PodDisruptionBudget> {
 }
 
 pub async fn ensure_pdb(client: &Client, node: &StellarNode, dry_run: bool) -> Result<()> {
-    if node.spec.replicas <= 1 {
+    // For non-Validator nodes with replicas <= 1, delete any existing PDB.
+    if node.spec.node_type != NodeType::Validator && node.spec.replicas <= 1 {
         return delete_pdb(client, node, dry_run).await;
     }
 
@@ -4223,6 +4259,13 @@ pub async fn delete_pdb(client: &Client, node: &StellarNode, dry_run: bool) -> R
 // Test helpers — thin wrappers that expose private builders for unit tests
 // (Issue #298)
 // ============================================================================
+
+#[cfg(test)]
+pub(crate) fn build_pdb_for_test(
+    node: &StellarNode,
+) -> Option<k8s_openapi::api::policy::v1::PodDisruptionBudget> {
+    build_pdb(node)
+}
 
 #[cfg(test)]
 pub(crate) fn build_pvc_for_test(
