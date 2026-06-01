@@ -112,6 +112,7 @@ pub mod operator_config;
 pub mod peer_discovery;
 #[cfg(test)]
 mod peer_discovery_test;
+pub mod performance;
 pub mod pruning_reconciler;
 pub mod pruning_worker;
 pub mod quorum;

@@ -60,6 +60,7 @@ pub mod stellar_autoscaler;
 pub mod stellar_benchmark;
 pub mod stellar_federation;
 pub mod stellar_observability;
+pub mod stellar_performance;
 pub mod stellar_upgrade;
 mod stellar_node;
 pub mod tenant;
@@ -106,6 +107,10 @@ pub use stellar_autoscaler::{
     CanaryStrategy, CostAwareConfig, MetricType, PredictionModel, PredictiveScalingConfig,
     ScalingPolicy, ScalingStrategy, StellarAutoscaler, StellarAutoscalerSpec,
     StellarAutoscalerStatus, StellarMetric,
+};
+pub use stellar_performance::{
+    BudgetResult, PerformanceBudgets, PerformancePhase, PerformanceSample, RegressionPolicy,
+    StellarPerformance, StellarPerformanceSpec, StellarPerformanceStatus,
 };
 pub use stellar_upgrade::{
     CanaryStrategy as UpgradeCanaryStrategy, HealthValidation, RollbackPolicy, StellarUpgrade,
