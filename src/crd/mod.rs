@@ -59,11 +59,12 @@ pub mod service_mesh;
 pub mod stellar_autoscaler;
 pub mod stellar_benchmark;
 pub mod stellar_federation;
+pub mod stellar_network_policy;
+mod stellar_node;
 pub mod stellar_observability;
 pub mod stellar_performance;
 pub mod stellar_topology;
 pub mod stellar_upgrade;
-mod stellar_node;
 pub mod tenant;
 pub mod traffic_policy;
 pub mod types;
@@ -94,6 +95,11 @@ pub use service_mesh::{
     CircuitBreakerConfig, IstioMeshConfig, LinkerdMeshConfig, MtlsMode, RetryConfig,
     ServiceMeshConfig,
 };
+pub use stellar_autoscaler::{
+    CanaryStrategy, CostAwareConfig, MetricType, PredictionModel, PredictiveScalingConfig,
+    ScalingPolicy, ScalingStrategy, StellarAutoscaler, StellarAutoscalerSpec,
+    StellarAutoscalerStatus, StellarMetric,
+};
 pub use stellar_benchmark::{
     BenchmarkConfig, BenchmarkMetrics, BenchmarkPhase, BenchmarkReport, BenchmarkReportSpec,
     BenchmarkReportStatus, BenchmarkResourceRequirements, BenchmarkSummary,
@@ -101,13 +107,25 @@ pub use stellar_benchmark::{
     StellarBenchmarkStatus, Toleration as BenchmarkToleration,
 };
 pub use stellar_federation::{
-    FederationCluster, ReplicationConfig, ReplicationMode, RoutingStrategy,
-    StellarFederation, StellarFederationSpec, StellarFederationStatus, TrafficRoutingPolicy,
+    FederationCluster, ReplicationConfig, ReplicationMode, RoutingStrategy, StellarFederation,
+    StellarFederationSpec, StellarFederationStatus, TrafficRoutingPolicy,
 };
-pub use stellar_autoscaler::{
-    CanaryStrategy, CostAwareConfig, MetricType, PredictionModel, PredictiveScalingConfig,
-    ScalingPolicy, ScalingStrategy, StellarAutoscaler, StellarAutoscalerSpec,
-    StellarAutoscalerStatus, StellarMetric,
+pub use stellar_network_policy::{
+    AllowedDestination, Condition, DNSRule, EgressRule, GRPCRule, HTTPRule, HeaderMatch, IPBlock,
+    IngressRule, L7Rule, LabelSelector, LabelSelectorRequirement, MetadataMatch, NetworkPolicyPeer,
+    NetworkPolicyPort, SegmentSelector, StellarNetworkPolicy, StellarNetworkPolicySpec,
+    StellarNetworkPolicyStatus, StellarNetworkSegment, StellarNetworkSegmentSpec,
+    StellarNetworkSegmentStatus, StellarWorkloadProfile, StellarWorkloadProfileSpec, TLSRule,
+    WorkloadIdentity,
+};
+pub use stellar_node::{
+    BGPStatus, SnapshotBootstrapStatus, SpecValidationError, StellarNode, StellarNodeSpec,
+    StellarNodeStatus,
+};
+pub use stellar_observability::{
+    AlertRule, AlertingConfig, AnomalyDetectionConfig, AnomalyModel, AnomalySensitivity,
+    LoggingBackend, LoggingConfig, StellarObservability, StellarObservabilitySpec,
+    StellarObservabilityStatus, TracingBackend, TracingConfig,
 };
 pub use stellar_performance::{
     BudgetResult, PerformanceBudgets, PerformancePhase, PerformanceSample, RegressionPolicy,
@@ -119,15 +137,6 @@ pub use stellar_topology::{
 pub use stellar_upgrade::{
     CanaryStrategy as UpgradeCanaryStrategy, HealthValidation, RollbackPolicy, StellarUpgrade,
     StellarUpgradeSpec, StellarUpgradeStatus, UpgradePhase,
-};
-pub use stellar_observability::{
-    AnomalyDetectionConfig, AnomalyModel, AnomalySensitivity, AlertingConfig, AlertRule,
-    LoggingBackend, LoggingConfig, StellarObservability, StellarObservabilitySpec,
-    StellarObservabilityStatus, TracingBackend, TracingConfig,
-};
-pub use stellar_node::{
-    BGPStatus, SnapshotBootstrapStatus, SpecValidationError, StellarNode, StellarNodeSpec,
-    StellarNodeStatus,
 };
 pub use traffic_policy::{
     AdaptiveRateLimitPolicy, CircuitBreakerPolicy, LeakyBucketPolicy, PriorityRule, QosClassPolicy,
