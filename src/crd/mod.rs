@@ -68,6 +68,12 @@ pub mod tenant;
 pub mod traffic_policy;
 pub mod types;
 
+// New Epic CRDs (Wave 5)
+pub mod stellar_gitops;
+pub mod stellar_aiops;
+pub mod stellar_security;
+pub mod stellar_disaster_recovery;
+
 #[cfg(test)]
 mod tests;
 
@@ -134,3 +140,25 @@ pub use traffic_policy::{
     TokenBucketPolicy, TrafficPolicy, TrafficPolicySpec, TrafficPolicyStatus, TrafficPriorityClass,
 };
 pub use types::*;
+
+// Epic CRD exports (Wave 5)
+pub use stellar_gitops::{
+    ArgoCDConfig, ArgoCDSyncPolicy, FluxCDConfig, GitOpsProvider, ProgressiveDeliveryConfig,
+    StellarGitOpsConfig, StellarGitOpsConfigSpec, StellarGitOpsConfigStatus, SyncStatus,
+};
+pub use stellar_aiops::{
+    AnomalyDetectionConfig, AutomatedRemediationConfig, CapacityPlanningConfig, ChatOpsConfig,
+    OperationalStatus, PredictiveMaintenanceConfig, RootCauseAnalysisConfig, SlackIntegration,
+    StellarAIOps, StellarAIOpsSpec, StellarAIOpsStatus, TeamsIntegration,
+};
+pub use stellar_security::{
+    AutomatedScanningConfig, ComplianceFramework, ComplianceStatus, NetworkPoliciesConfig,
+    PodSecurityLevel, PodSecurityStandardsConfig, RBACConfig, SecretManagementConfig,
+    SecretProvider, SecurityMonitoringConfig, StellarSecurityPolicy, StellarSecurityPolicySpec,
+    StellarSecurityPolicyStatus,
+};
+pub use stellar_disaster_recovery::{
+    BackupDestination, EncryptionConfig, RetentionPolicy, StellarBackup, StellarBackupSpec,
+    StellarBackupStatus, StellarRestore, StellarRestoreSpec, StellarRestoreStatus, StellarDRDrill,
+    StellarDRDrillSpec, StellarDRDrillStatus, DrillStatus, RestorePhase,
+};
