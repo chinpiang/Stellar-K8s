@@ -943,15 +943,63 @@ async fn snapshot_list(
     Ok(())
 }
 
-/// Restore from a VolumeSnapshot (placeholder - this would typically involve updating PVC in StellarNode spec)
+/// Restore a StellarNode from a VolumeSnapshot by patching spec.storage.snapshotRef.
+///
+/// This patches the StellarNode's `spec.storage.snapshotRef.volumeSnapshotName` field so
+/// that the operator reconciler will use the snapshot as the PVC data source on the next
+/// pod (re)creation.  The caller is responsible for deleting the existing PVC beforehand
+/// if they want the data to actually be restored from the snapshot.
 async fn snapshot_restore(
-    _client: &Client,
-    _namespace: &str,
-    _snapshot_name: &str,
-    _node_name: &str,
+    client: &Client,
+    namespace: &str,
+    snapshot_name: &str,
+    node_name: &str,
 ) -> Result<()> {
-    println!("Restore functionality would update StellarNode spec to use VolumeSnapshot as data source for PVC");
-    println!("For now, this is a placeholder - see documentation for manual restoration steps");
+    // Verify the VolumeSnapshot exists in the same namespace.
+    let vs_api_resource = volume_snapshot_api_resource();
+    let vs_api: Api<kube::api::DynamicObject> =
+        Api::namespaced_with(client.clone(), namespace, &vs_api_resource);
+    vs_api
+        .get(snapshot_name)
+        .await
+        .map_err(|e| Error::KubeError(e))?;
+
+    // Patch the StellarNode spec to point at the snapshot.
+    let node_api: Api<StellarNode> = Api::namespaced(client.clone(), namespace);
+    let patch = serde_json::json!({
+        "spec": {
+            "storage": {
+                "snapshotRef": {
+                    "volumeSnapshotName": snapshot_name
+                }
+            }
+        }
+    });
+
+    node_api
+        .patch(
+            node_name,
+            &PatchParams::apply("kubectl-stellar").force(),
+            &Patch::Apply(&patch),
+        )
+        .await
+        .map_err(Error::KubeError)?;
+
+    println!(
+        "StellarNode '{}' patched: spec.storage.snapshotRef.volumeSnapshotName = '{}'",
+        node_name, snapshot_name
+    );
+    println!(
+        "The operator will use this snapshot as the PVC data source on the next pod recreation."
+    );
+    println!(
+        "To trigger an immediate restore, delete the existing PVC '{}' manually:",
+        format!("{}-data", node_name)
+    );
+    println!(
+        "  kubectl delete pvc {}-data -n {}",
+        node_name, namespace
+    );
     Ok(())
 }
 

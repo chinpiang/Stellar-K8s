@@ -1269,7 +1269,10 @@ fn default_monitoring_namespace() -> String {
 impl Default for NetworkPolicyConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            // Default to enabled so every StellarNode gets strict NetworkPolicy
+            // enforcement out of the box. Set `enabled: false` in the CRD spec
+            // to opt out (e.g. when the CNI doesn't support NetworkPolicy).
+            enabled: true,
             allow_namespaces: Vec::new(),
             allow_pod_selector: None,
             allow_cidrs: Vec::new(),
