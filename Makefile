@@ -100,6 +100,9 @@ ci-local: fmt-check lint audit test build ## Run full CI locally
 	@echo ""
 	@echo "✓ All CI checks passed!"
 
+health: ## Run common repository health checks (format, lint, test, docs)
+	@bash scripts/repo-health.sh
+
 quick: fmt-check ## Quick pre-commit check
 	@$(CARGO) check --workspace
 	@echo "✓ Quick checks passed"
@@ -248,6 +251,9 @@ quickstart: ## End-to-end local quickstart: kind cluster + CRD + operator + samp
 
 validate: ## Run local validation script (format + lint + compile)
 	@bash scripts/validate.sh
+
+# For the full contributor health gate (format + lint + tests + docs), use:
+#   make health
 
 preflight: ## Validate required local tools are installed (docker, kind, kubectl, helm, cargo)
 	@echo "→ Running local development preflight checks..."
