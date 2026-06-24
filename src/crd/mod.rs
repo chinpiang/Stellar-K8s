@@ -173,11 +173,6 @@ pub use stellar_registry::{
     SigningConfig, StellarRegistry, StellarRegistrySpec, StellarRegistryStatus,
     VulnerabilitySummary,
 };
-pub use stellar_secret::{
-    DatabaseCredentialTarget, DynamicSecretConfig, InjectionKind, RotationConfig,
-    SecretAuditPolicy, SecretBackend, SecretInjectionTarget, SecretPhase, SecretVersionRecord,
-    StellarSecret, StellarSecretSpec, StellarSecretStatus,
-};
 pub use stellar_security::{
     AutomatedScanningConfig, ComplianceFramework, ComplianceStatus as SecurityComplianceStatus,
     NetworkPoliciesConfig, PodSecurityLevel, PodSecurityStandardsConfig, RBACConfig,
