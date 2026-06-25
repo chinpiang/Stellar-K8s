@@ -23,22 +23,10 @@ We use a standard fork and pull request workflow for contributions:
 6. **Push to your fork** on GitHub.
 7. **Open a Pull Request** against the `main` branch of the upstream repository.
 
-   This will:
-   - Install Rust toolchain and components
-   - Install cargo-audit and cargo-watch
-   - Install pre-commit hooks for automatic code quality checks
-
-3. Run local checks before committing:
 ## 2. Branch Naming
 
 Please use descriptive branch names based on the nature of your contribution. We recommend the following prefixes:
 
-   # Run pre-commit hooks manually
-   make pre-commit
-
-   # Or comprehensive pre-push check
-   make ci-local
-   ```
 - `feat/` for new features (e.g., `feat/auto-mtls`)
 - `fix/` for bug fixes (e.g., `fix/panic-on-startup`)
 - `docs/` for documentation updates (e.g., `docs/update-architecture`)
